@@ -7,9 +7,16 @@ from fastapi.testclient import TestClient
 
 import sys, os
 sys.path.insert(0, os.path.dirname(os.path.dirname(__file__)))
-from app.main import app
+from app import main as app_main
 
-client = TestClient(app)
+client = TestClient(app_main.app)
+
+
+@pytest.fixture(autouse=True)
+def reset_rate_limit_state():
+    app_main._request_counts.clear()
+    yield
+    app_main._request_counts.clear()
 
 
 # ── Fixtures ──────────────────────────────────────────────────────────────────
@@ -129,6 +136,29 @@ def test_health():
     r = client.get("/health")
     assert r.status_code == 200
     assert r.json()["status"] == "ok"
+
+
+def test_rate_limit_headers_on_success_response():
+    r = client.get("/")
+    assert r.status_code == 200
+    assert r.headers["X-RateLimit-Limit"] == str(app_main.RATE_LIMIT)
+    assert r.headers["X-RateLimit-Remaining"] == str(app_main.RATE_LIMIT)
+
+
+def test_rate_limit_returns_429_with_retry_after_header():
+    payload = {"code": "print('hello')", "language": "python"}
+
+    for expected_remaining in range(app_main.RATE_LIMIT - 1, -1, -1):
+        r = client.post("/debugging/", json=payload)
+        assert r.status_code == 200
+        assert r.headers["X-RateLimit-Limit"] == str(app_main.RATE_LIMIT)
+        assert r.headers["X-RateLimit-Remaining"] == str(expected_remaining)
+
+    r = client.post("/debugging/", json=payload)
+    assert r.status_code == 429
+    assert r.headers["Retry-After"] == str(app_main.RATE_LIMIT_WINDOW_SECONDS)
+    assert r.headers["X-RateLimit-Limit"] == str(app_main.RATE_LIMIT)
+    assert r.headers["X-RateLimit-Remaining"] == "0"
 
 
 # ── Explanation ───────────────────────────────────────────────────────────────
