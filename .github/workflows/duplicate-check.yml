@@ -12,7 +12,6 @@ jobs:
         with:
           script: |
             const title = context.payload.issue.title.toLowerCase();
-            const body = context.payload.issue.body || '';
             const issueNumber = context.payload.issue.number;
 
             const { data: issues } = await github.rest.issues.listForRepo({
@@ -21,25 +20,28 @@ jobs:
               per_page: 100
             });
 
-            const duplicates = issues.filter(i => 
+            const duplicates = issues.filter(i =>
               i.number !== issueNumber &&
-              i.title.toLowerCase().includes(title.split(' ').slice(0,3).join(' '))
+              i.title.toLowerCase().includes(title.split(' ').slice(0, 3).join(' '))
             );
 
             if (duplicates.length > 0) {
               const links = duplicates.map(i => `- #${i.number}: ${i.title}`).join('\n');
+
               await github.rest.issues.createComment({
                 ...context.repo,
                 issue_number: issueNumber,
-                body: `⚠️ **Possible duplicate detected**
-
-This issue may already exist:
-${links}
-
-Please check if your issue is covered by one of the above before proceeding. 
-If this is different, explain how in a comment and a maintainer will confirm.`
+                body: [
+                  '**Possible duplicate detected**',
+                  '',
+                  'This issue may already exist:',
+                  links,
+                  '',
+                  'Please check if your issue is covered by one of the above before proceeding.',
+                  'If this is different, explain how in a comment and a maintainer will confirm.'
+                ].join('\n')
               });
-              
+
               await github.rest.issues.addLabels({
                 ...context.repo,
                 issue_number: issueNumber,
